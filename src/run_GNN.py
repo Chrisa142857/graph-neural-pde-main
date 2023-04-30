@@ -66,7 +66,6 @@ def train(model, optimizer, data, pos_encoding=None):
   feat = data.x
   if model.opt['use_labels']:
     train_label_idx, train_pred_idx = get_label_masks(data, model.opt['label_rate'])
-
     feat = add_labels(feat, data.y, train_label_idx, model.num_classes, model.device)
   else:
     train_pred_idx = data.train_mask
@@ -76,6 +75,9 @@ def train(model, optimizer, data, pos_encoding=None):
   if model.opt['dataset'] == 'ogbn-arxiv':
     lf = torch.nn.functional.nll_loss
     loss = lf(out.log_softmax(dim=-1)[data.train_mask], data.y.squeeze(1)[data.train_mask])
+  elif 'custom' in model.opt['dataset']:
+    lf = torch.nn.MSELoss()
+    loss = lf(out[data.train_mask], data.y[data.train_mask])
   else:
     lf = torch.nn.CrossEntropyLoss()
     loss = lf(out[data.train_mask], data.y.squeeze()[data.train_mask])
@@ -114,6 +116,9 @@ def train_OGB(model, mp, optimizer, data, pos_encoding=None):
   if model.opt['dataset'] == 'ogbn-arxiv':
     lf = torch.nn.functional.nll_loss
     loss = lf(out.log_softmax(dim=-1)[data.train_mask], data.y.squeeze(1)[data.train_mask])
+  elif 'custom' in model.opt['dataset']:
+    lf = torch.nn.functional.mse_loss
+    loss = lf(out[data.train_mask], data.y[data.train_mask])
   else:
     lf = torch.nn.CrossEntropyLoss()
     loss = lf(out[data.train_mask], data.y.squeeze()[data.train_mask])
@@ -134,6 +139,11 @@ def train_OGB(model, mp, optimizer, data, pos_encoding=None):
   model.resetNFE()
   return loss.item()
 
+def compute_metrics(dataset, pred, y, mask):
+  if 'custom' in dataset:
+    return torch.abs(pred[mask] - y[mask]).mean().item()
+  else:
+    return pred[mask].max(1)[1].eq(y[mask]).sum().item() / mask.sum().item()
 
 @torch.no_grad()
 def test(model, data, pos_encoding=None, opt=None):  # opt required for runtime polymorphism
@@ -143,18 +153,19 @@ def test(model, data, pos_encoding=None, opt=None):  # opt required for runtime 
     feat = add_labels(feat, data.y, data.train_mask, model.num_classes, model.device)
   logits, accs = model(feat, pos_encoding), []
   for _, mask in data('train_mask', 'val_mask', 'test_mask'):
-    # print("_: ", _)
-    # print("mask: ",)
-    pred = logits[mask].max(1)[1]
-    acc = pred.eq(data.y[mask]).sum().item() / mask.sum().item()
+    acc = compute_metrics(model.opt['dataset'], logits, data.y, mask)
     accs.append(acc)
     if _=='test_mask':
+      pred = logits[mask].max(1)[1]
       precision = torchmetrics.Precision(task="multiclass", average='weighted', num_classes=logits.shape[1]).to(model.device)
       pre = precision(pred, data.y[mask])
       recall = torchmetrics.Recall(task="multiclass", average='weighted', num_classes=logits.shape[1]).to(model.device)
       rec = recall(pred, data.y[mask])
       f1score = torchmetrics.F1Score(task="multiclass", average='weighted', num_classes=logits.shape[1]).to(model.device)
       f1 = f1score(pred, data.y[mask])
+  if len(accs) < 3: 
+    accs = accs + [0]
+    pre = rec = f1 = 0
   return accs[0], accs[1], accs[2], pre, rec, f1
 
 
@@ -254,41 +265,44 @@ def main(cmd_opt):
   print_model_params(model)
   optimizer = get_optimizer(opt['optimizer'], parameters, lr=opt['lr'], weight_decay=opt['decay'])
   best_time = best_epoch = train_acc = val_acc = test_acc = precision = recall = F1score = 0
-
+  val_acc = 999999999
   # this_test = test_OGB if opt['dataset'] == 'ogbn-arxiv' else test
+  for _ in range(5):
+    for epoch in range(1, opt['epoch']):
+      start_time = time.time()
 
-  for epoch in range(1, opt['epoch']):
-    start_time = time.time()
+      if opt['rewire_KNN'] and epoch % opt['rewire_KNN_epoch'] == 0 and epoch != 0:
+        ei = apply_KNN(data, pos_encoding, model, opt)
+        model.odeblock.odefunc.edge_index = ei
 
-    if opt['rewire_KNN'] and epoch % opt['rewire_KNN_epoch'] == 0 and epoch != 0:
-      ei = apply_KNN(data, pos_encoding, model, opt)
-      model.odeblock.odefunc.edge_index = ei
+      loss = train(model, optimizer, data, pos_encoding)
+      tmp_train_acc, tmp_val_acc, tmp_test_acc, tmp_precision, tmp_recall, tmp_f1score = test(model, data, pos_encoding, opt)
 
-    loss = train(model, optimizer, data, pos_encoding)
-    tmp_train_acc, tmp_val_acc, tmp_test_acc, tmp_precision, tmp_recall, tmp_f1score = test(model, data, pos_encoding, opt)
-
-    best_time = opt['time']
-    if tmp_val_acc > val_acc:
-      best_epoch = epoch
-      train_acc = tmp_train_acc
-      val_acc = tmp_val_acc
-      test_acc = tmp_test_acc
-      precision = tmp_precision
-      recall = tmp_recall
-      F1score = tmp_f1score
       best_time = opt['time']
-    # if not opt['no_early'] and model.odeblock.test_integrator.solver.best_val > val_acc:
-    #   best_epoch = epoch
-    #   val_acc = model.odeblock.test_integrator.solver.best_val
-    #   test_acc = model.odeblock.test_integrator.solver.best_test
-    #   train_acc = model.odeblock.test_integrator.solver.best_train
-    #   best_time = model.odeblock.test_integrator.solver.best_time
+      if tmp_val_acc < val_acc:
+        best_epoch = epoch
+        train_acc = tmp_train_acc
+        val_acc = tmp_val_acc
+        test_acc = tmp_test_acc
+        precision = tmp_precision
+        recall = tmp_recall
+        F1score = tmp_f1score
+        best_time = opt['time']
+      # if not opt['no_early'] and model.odeblock.test_integrator.solver.best_val > val_acc:
+      #   best_epoch = epoch
+      #   val_acc = model.odeblock.test_integrator.solver.best_val
+      #   test_acc = model.odeblock.test_integrator.solver.best_test
+      #   train_acc = model.odeblock.test_integrator.solver.best_train
+      #   best_time = model.odeblock.test_integrator.solver.best_time
 
-    log = 'Epoch: {:03d}, Runtime {:03f}, Loss {:03f}, forward nfe {:d}, backward nfe {:d}, Train: {:.4f}, Val: {:.4f}, Test: {:.4f}, Best time: {:.4f}'
+      log = 'Epoch: {:03d}, Runtime {:03.2f}, Loss {:03.8f}, forward nfe {:d}, backward nfe {:d}, Train: {:.8f}, Val: {:.8f}, Test: {:.1f}, Best time: {:.0f}'
 
-    print(log.format(epoch, time.time() - start_time, loss, model.fm.sum, model.bm.sum, train_acc, val_acc, test_acc, best_time))
-  print('best val accuracy {:03f} with test accuracy {:03f} at epoch {:d} and best time {:03f}'.format(val_acc, test_acc,best_epoch,best_time))
-  print('pre {:04f} rec {:04f} f1 {:04f}'.format(precision, recall, F1score))
+      print(log.format(epoch, time.time() - start_time, loss, model.fm.sum, model.bm.sum, train_acc, val_acc, test_acc, best_time))
+    print('best val accuracy {:03f} with test accuracy {:03f} at epoch {:d} and best time {:03f}'.format(val_acc, test_acc,best_epoch,best_time))
+    print('pre {:04f} rec {:04f} f1 {:04f}'.format(precision, recall, F1score))
+    if opt['cross_val_fold'] > 1: 
+      dataset.next_fold()
+      data = dataset.data.to(device)
   return train_acc, val_acc, test_acc, precision, recall, F1score
 
 
@@ -297,7 +311,7 @@ if __name__ == '__main__':
   parser.add_argument('--use_cora_defaults', action='store_true',
                       help='Whether to run with best params for cora. Overrides the choice of dataset')
   # data args
-  parser.add_argument('--dataset', type=str, default='Pubmed',
+  parser.add_argument('--dataset', type=str, default='customAmyloid/Amyloid_prediction',
                       help='Cora, Citeseer, Pubmed, Computers, Photo, CoauthorCS, ogbn-arxiv')
   parser.add_argument('--data_norm', type=str, default='rw',
                       help='rw for random walk, gcn for symmetric gcn norm')
@@ -320,9 +334,9 @@ if __name__ == '__main__':
   parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate.')
   parser.add_argument("--batch_norm", dest='batch_norm', action='store_true', help='search over reg params')
   parser.add_argument('--optimizer', type=str, default='adam', help='One from sgd, rmsprop, adam, adagrad, adamax.')
-  parser.add_argument('--lr', type=float, default=0.01, help='Learning rate.')
+  parser.add_argument('--lr', type=float, default=0.001, help='Learning rate.')
   parser.add_argument('--decay', type=float, default=5e-4, help='Weight decay for optimization')
-  parser.add_argument('--epoch', type=int, default=100, help='Number of training epochs per iteration.')
+  parser.add_argument('--epoch', type=int, default=500, help='Number of training epochs per iteration.')
   parser.add_argument('--alpha', type=float, default=1.0, help='Factor in front matrix A.')
   parser.add_argument('--alpha_dim', type=str, default='sc', help='choose either scalar (sc) or vector (vc) alpha')
   parser.add_argument('--no_alpha_sigmoid', dest='no_alpha_sigmoid', action='store_true',
@@ -340,7 +354,7 @@ if __name__ == '__main__':
   parser.add_argument('--time', type=float, default=64.0, help='End time of ODE integrator.')
   parser.add_argument('--augment', action='store_true',
                       help='double the length of the feature vector by appending zeros to stabilist ODE learning')
-  parser.add_argument('--method', type=str, help="set the numerical solver: dopri5, euler, rk4, midpoint")
+  parser.add_argument('--method', type=str, default='dopri5', help="set the numerical solver: dopri5, euler, rk4, midpoint")
   parser.add_argument('--step_size', type=float, default=1,
                       help='fixed step size when using fixed step solvers e.g. rk4')
   parser.add_argument('--max_iters', type=float, default=100, help='maximum number of integration steps')

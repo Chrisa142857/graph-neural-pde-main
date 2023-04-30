@@ -9,6 +9,7 @@ import numpy as np
 import torch
 from torch_geometric.data import Data, InMemoryDataset
 from torch_geometric.datasets import Planetoid, Amazon, Coauthor
+from custom_data import custom_BOLD
 from graph_rewiring import get_two_hop, apply_gdc
 from ogb.nodeproppred import PygNodePropPredDataset
 import torch_geometric.transforms as T
@@ -50,6 +51,9 @@ def get_dataset(opt: dict, data_dir, use_lcc: bool = False) -> InMemoryDataset:
     dataset = PygNodePropPredDataset(name=ds, root=path,
                                      transform=T.ToSparseTensor())
     use_lcc = False  # never need to calculate the lcc with ogb datasets
+  elif 'custom' in ds:
+    dataset = custom_BOLD(name=ds, root=path)
+    use_lcc = False  # never need to calculate the lcc with BOLD datasets
   else:
     raise Exception('Unknown dataset.')
 

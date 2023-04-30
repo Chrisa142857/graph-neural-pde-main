@@ -6,3 +6,6 @@ src/checkpoint
 images/
 ray_results/
 models/
+*_out.txt
+src/*.sh
+src/*.out

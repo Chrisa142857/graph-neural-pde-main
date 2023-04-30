@@ -35,7 +35,7 @@ class EarlyStopDopri5(RKAdaptiveStepsizeODESolver):
   def __init__(self, func, y0, rtol, atol, opt, **kwargs):
     super(EarlyStopDopri5, self).__init__(func, y0, rtol, atol, **kwargs)
 
-    self.lf = torch.nn.CrossEntropyLoss()
+    self.lf = torch.nn.CrossEntropyLoss() if 'custom' not in opt['dataset'] else torch.nn.MSELoss()
     self.m2_weight = None
     self.m2_bias = None
     self.data = None
@@ -90,8 +90,13 @@ class EarlyStopDopri5(RKAdaptiveStepsizeODESolver):
     accs = []
     for _, mask in self.data('train_mask', 'val_mask', 'test_mask'):
       pred = logits[mask].max(1)[1]
-      acc = pred.eq(self.data.y[mask]).sum().item() / mask.sum().item()
+      if 'custom' in self.dataset:
+        acc = torch.abs(logits[mask] - self.data.y[mask]).mean().item()
+      else:
+        acc = pred.eq(self.data.y[mask]).sum().item() / mask.sum().item()
+      # acc = pred.eq(self.data.y[mask]).sum().item() / mask.sum().item()
       accs.append(acc)
+    if len(accs) < 3: accs.append(0)
     return accs
 
   @torch.no_grad()
@@ -112,7 +117,7 @@ class EarlyStopDopri5(RKAdaptiveStepsizeODESolver):
     z = F.linear(z, self.m2_weight, self.m2_bias)
     t0, t1 = float(self.rk_state.t0), float(self.rk_state.t1)
     if self.dataset == 'ogbn-arxiv':
-      z = z.log_softmax(dim=-1)
+      if 'custom' not in self.dataset: z = z.log_softmax(dim=-1)
       loss = self.lf(z[self.data.train_mask], self.data.y.squeeze()[self.data.train_mask])
     else:
       loss = self.lf(z[self.data.train_mask], self.data.y[self.data.train_mask])
