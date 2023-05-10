@@ -21,6 +21,17 @@ from utils import ROOT_DIR
 from CGNN import CGNN, get_sym_adj
 from CGNN import train as train_cgnn
 
+torch.manual_seed(3407)
+DATA_DIR = '/BAND/USERS/jiaqid/ADNI/data/'
+
+class GraphPool(torch.nn.Module):
+  # for graph classification
+  def __init__(self, node_num):
+    super().__init__()
+    self.node_num = node_num
+
+  def forward(self, x):
+    return torch.nn.functional.avg_pool1d(x.T, self.node_num, self.node_num).T
 
 def get_optimizer(name, parameters, lr, weight_decay=0):
   if name == 'sgd':
@@ -155,7 +166,7 @@ def test(model, data, pos_encoding=None, opt=None):  # opt required for runtime 
   for _, mask in data('train_mask', 'val_mask', 'test_mask'):
     acc = compute_metrics(model.opt['dataset'], logits, data.y, mask)
     accs.append(acc)
-    if _=='test_mask':
+    if _=='test_mask' or 'cus_cls' in model.opt['dataset']:
       pred = logits[mask].max(1)[1]
       precision = torchmetrics.Precision(task="multiclass", average='weighted', num_classes=logits.shape[1]).to(model.device)
       pre = precision(pred, data.y[mask])
@@ -242,7 +253,7 @@ def main(cmd_opt):
     opt = cmd_opt
   opt['max_nfe'] = cmd_opt['max_nfe']
   opt['time'] = cmd_opt['time']
-  dataset = get_dataset(opt, f'{ROOT_DIR}/data', opt['not_lcc'])
+  dataset = get_dataset(opt, DATA_DIR, opt['not_lcc'])
   device = torch.device('cuda:%d'%opt['gpu'] if torch.cuda.is_available() else 'cpu')
 
   if opt['beltrami']:
@@ -256,6 +267,14 @@ def main(cmd_opt):
   else:
     model = GNN(opt, dataset, device).to(device) if opt["no_early"] else GNNEarly(opt, dataset, device).to(device)
 
+  if 'cus_cls' in opt['dataset']: # graph classification
+
+    new_m2 = torch.nn.Sequential(
+      GraphPool(dataset.node_nums[0]),
+      model.m2,
+    )
+    model.m2 = new_m2
+
   if not opt['planetoid_split'] and opt['dataset'] in ['Cora','Citeseer','Pubmed']:
     dataset.data = set_train_val_test_split(np.random.randint(0, 1000), dataset.data, num_development=5000 if opt["dataset"] == "CoauthorCS" else 1500)
 
@@ -265,9 +284,9 @@ def main(cmd_opt):
   print_model_params(model)
   optimizer = get_optimizer(opt['optimizer'], parameters, lr=opt['lr'], weight_decay=opt['decay'])
   best_time = best_epoch = train_acc = val_acc = test_acc = precision = recall = F1score = 0
-  val_acc = 999999999
+  val_acc = 999999999 if 'custom' in opt['dataset'] else 0 # custom for BOLD signal prediction, others for classification
   # this_test = test_OGB if opt['dataset'] == 'ogbn-arxiv' else test
-  for _ in range(5):
+  for foldi in range(5):
     for epoch in range(1, opt['epoch']):
       start_time = time.time()
 
@@ -279,7 +298,7 @@ def main(cmd_opt):
       tmp_train_acc, tmp_val_acc, tmp_test_acc, tmp_precision, tmp_recall, tmp_f1score = test(model, data, pos_encoding, opt)
 
       best_time = opt['time']
-      if tmp_val_acc < val_acc:
+      if tmp_val_acc >= val_acc:
         best_epoch = epoch
         train_acc = tmp_train_acc
         val_acc = tmp_val_acc
@@ -295,14 +314,15 @@ def main(cmd_opt):
       #   train_acc = model.odeblock.test_integrator.solver.best_train
       #   best_time = model.odeblock.test_integrator.solver.best_time
 
-      log = 'Epoch: {:03d}, Runtime {:03.2f}, Loss {:03.8f}, forward nfe {:d}, backward nfe {:d}, Train: {:.8f}, Val: {:.8f}, Test: {:.1f}, Best time: {:.0f}'
-
-      print(log.format(epoch, time.time() - start_time, loss, model.fm.sum, model.bm.sum, train_acc, val_acc, test_acc, best_time))
-    print('best val accuracy {:03f} with test accuracy {:03f} at epoch {:d} and best time {:03f}'.format(val_acc, test_acc,best_epoch,best_time))
-    print('pre {:04f} rec {:04f} f1 {:04f}'.format(precision, recall, F1score))
-    if opt['cross_val_fold'] > 1: 
-      dataset.next_fold()
-      data = dataset.data.to(device)
+      # log = 'Epoch: {:03d}, Runtime {:03.2f}, Loss {:03.8f}, forward nfe {:d}, backward nfe {:d}, Train: {:.8f}, Val: {:.8f}, Test: {:.1f}, Best time: {:.0f}'
+      # print(log.format(epoch, time.time() - start_time, loss, model.fm.sum, model.bm.sum, train_acc, val_acc, test_acc, best_time))
+    print('fold {:03d} best val accuracy {:03f} recall {:03f} at epoch {:d} and dataset {:s}'.format(
+      foldi,val_acc,best_epoch,opt['dataset']
+    ))
+    # print('pre {:04f} rec {:04f} f1 {:04f}'.format(precision, recall, F1score))
+    # if opt['cross_val_fold'] > 1: 
+    dataset.next_fold()
+    data = dataset.data.to(device)
   return train_acc, val_acc, test_acc, precision, recall, F1score
 
 
@@ -311,7 +331,7 @@ if __name__ == '__main__':
   parser.add_argument('--use_cora_defaults', action='store_true',
                       help='Whether to run with best params for cora. Overrides the choice of dataset')
   # data args
-  parser.add_argument('--dataset', type=str, default='customAmyloid/Amyloid_prediction',
+  parser.add_argument('--dataset', type=str, default='Amyloid_classificationcus_cls-2',
                       help='Cora, Citeseer, Pubmed, Computers, Photo, CoauthorCS, ogbn-arxiv')
   parser.add_argument('--data_norm', type=str, default='rw',
                       help='rw for random walk, gcn for symmetric gcn norm')
