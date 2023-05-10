@@ -108,9 +108,7 @@ class custom_Classification(InMemoryDataset):
         train_index = torch.cat([self.index[:split_pt1], self.index[split_pt2:]])
         val_index = self.index[split_pt1:split_pt2]
         train_mask = index_to_mask(train_index, size=self.N)
-        # train_mask = torch.cat([train_mask[i].repeat(self.node_nums[i]) for i in range(self.N)])
         val_mask = index_to_mask(val_index, size=self.N)
-        # val_mask = torch.cat([val_mask[i].repeat(self.node_nums[i]) for i in range(self.N)])
         self.data.train_mask = train_mask
         self.data.val_mask = val_mask
         self.current_fold += 1
@@ -126,7 +124,7 @@ class custom_Classification(InMemoryDataset):
         assert len(x) == len(y)
         x = np.concatenate(x)[..., np.newaxis]
         y = np.stack(y)
-        data = Data(x=torch.from_numpy(x), edge_index=torch.from_numpy(all_edge), edge_attr=torch.from_numpy(all_edge_attr), y=torch.from_numpy(y))
+        data = Data(x=torch.from_numpy(x), edge_index=torch.from_numpy(all_edge), edge_attr=torch.from_numpy(all_edge_attr), y=torch.from_numpy(y).long())
         data.num_features = 1
         data.num_nodes = x.shape[0]
         return data

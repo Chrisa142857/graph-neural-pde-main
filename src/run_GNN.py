@@ -91,7 +91,7 @@ def train(model, optimizer, data, pos_encoding=None):
     loss = lf(out[data.train_mask], data.y[data.train_mask])
   else:
     lf = torch.nn.CrossEntropyLoss()
-    loss = lf(out[data.train_mask], data.y.squeeze()[data.train_mask])
+    loss = lf(out[data.train_mask], data.y.long().squeeze()[data.train_mask])
   if model.odeblock.nreg > 0:  # add regularisation - slower for small data, but faster and better performance for large data
     reg_states = tuple(torch.mean(rs) for rs in model.reg_states)
     regularization_coeffs = model.regularization_coeffs
@@ -166,7 +166,7 @@ def test(model, data, pos_encoding=None, opt=None):  # opt required for runtime 
   for _, mask in data('train_mask', 'val_mask', 'test_mask'):
     acc = compute_metrics(model.opt['dataset'], logits, data.y, mask)
     accs.append(acc)
-    if _=='test_mask' or 'cus_cls' in model.opt['dataset']:
+    if _=='val_mask' and 'cus_cls' in model.opt['dataset']:
       pred = logits[mask].max(1)[1]
       precision = torchmetrics.Precision(task="multiclass", average='weighted', num_classes=logits.shape[1]).to(model.device)
       pre = precision(pred, data.y[mask])
@@ -174,9 +174,10 @@ def test(model, data, pos_encoding=None, opt=None):  # opt required for runtime 
       rec = recall(pred, data.y[mask])
       f1score = torchmetrics.F1Score(task="multiclass", average='weighted', num_classes=logits.shape[1]).to(model.device)
       f1 = f1score(pred, data.y[mask])
+    else: pre = rec = f1 = 0
   if len(accs) < 3: 
     accs = accs + [0]
-    pre = rec = f1 = 0
+
   return accs[0], accs[1], accs[2], pre, rec, f1
 
 
@@ -316,8 +317,8 @@ def main(cmd_opt):
 
       # log = 'Epoch: {:03d}, Runtime {:03.2f}, Loss {:03.8f}, forward nfe {:d}, backward nfe {:d}, Train: {:.8f}, Val: {:.8f}, Test: {:.1f}, Best time: {:.0f}'
       # print(log.format(epoch, time.time() - start_time, loss, model.fm.sum, model.bm.sum, train_acc, val_acc, test_acc, best_time))
-    print('fold {:03d} best val accuracy {:03f} recall {:03f} at epoch {:d} and dataset {:s}'.format(
-      foldi,val_acc,best_epoch,opt['dataset']
+    print('fold {:03d} best val accuracy {:03f} precision {:03f} f1 {:03f} at epoch {:d} and dataset {:s}'.format(
+      foldi,val_acc,precision,F1score,best_epoch,opt['dataset']
     ))
     # print('pre {:04f} rec {:04f} f1 {:04f}'.format(precision, recall, F1score))
     # if opt['cross_val_fold'] > 1: 
@@ -356,7 +357,7 @@ if __name__ == '__main__':
   parser.add_argument('--optimizer', type=str, default='adam', help='One from sgd, rmsprop, adam, adagrad, adamax.')
   parser.add_argument('--lr', type=float, default=0.001, help='Learning rate.')
   parser.add_argument('--decay', type=float, default=5e-4, help='Weight decay for optimization')
-  parser.add_argument('--epoch', type=int, default=500, help='Number of training epochs per iteration.')
+  parser.add_argument('--epoch', type=int, default=50, help='Number of training epochs per iteration.')
   parser.add_argument('--alpha', type=float, default=1.0, help='Factor in front matrix A.')
   parser.add_argument('--alpha_dim', type=str, default='sc', help='choose either scalar (sc) or vector (vc) alpha')
   parser.add_argument('--no_alpha_sigmoid', dest='no_alpha_sigmoid', action='store_true',

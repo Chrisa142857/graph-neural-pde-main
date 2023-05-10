@@ -29,8 +29,12 @@ class GNNEarly(BaseGNN):
       self.set_solver_data(dataset.data)
 
   def set_solver_m2(self):
-    self.odeblock.test_integrator.m2_weight = self.m2.weight.data.detach().clone().to(self.device)
-    self.odeblock.test_integrator.m2_bias = self.m2.bias.data.detach().clone().to(self.device)
+    if 'cus_cls-2' in self.opt['dataset']:
+      self.odeblock.test_integrator.m2_weight = self.m2[1].weight.data.detach().clone().to(self.device)
+      self.odeblock.test_integrator.m2_bias = self.m2[1].bias.data.detach().clone().to(self.device)
+    else:
+      self.odeblock.test_integrator.m2_weight = self.m2.weight.data.detach().clone().to(self.device)
+      self.odeblock.test_integrator.m2_bias = self.m2.bias.data.detach().clone().to(self.device)
 
   def set_solver_data(self, data):
     self.odeblock.test_integrator.data = data

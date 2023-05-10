@@ -113,6 +113,8 @@ class EarlyStopDopri5(RKAdaptiveStepsizeODESolver):
     z = rkstate.y1
     if not self.m2_weight.shape[1] == z.shape[1]:  # system has been augmented
       z = torch.split(z, self.m2_weight.shape[1], dim=1)[0]
+    # if z
+    z = torch.nn.functional.avg_pool1d(z.T, int(len(z)/len(self.data.y)), int(len(z)/len(self.data.y))).T # for graph classification
     z = F.relu(z)
     z = F.linear(z, self.m2_weight, self.m2_bias)
     t0, t1 = float(self.rk_state.t0), float(self.rk_state.t1)
