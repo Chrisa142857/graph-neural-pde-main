@@ -9,17 +9,17 @@ import torch.nn.functional as F
 import torchmetrics
 # from ogb.nodeproppred import Evaluator
 
-from GNN import GNN
+# from GNN import GNN
 from GNN_early import GNNEarly
-from GNN_KNN import GNN_KNN
-from GNN_KNN_early import GNNKNNEarly
+# from GNN_KNN import GNN_KNN
+# from GNN_KNN_early import GNNKNNEarly
 from data import get_dataset, set_train_val_test_split
-from graph_rewiring import apply_KNN, apply_beltrami, apply_edge_sampling
-from best_params import best_params_dict
-from heterophilic import get_fixed_splits
-from utils import ROOT_DIR
-from CGNN import CGNN, get_sym_adj
-from CGNN import train as train_cgnn
+# from graph_rewiring import apply_KNN, apply_beltrami, apply_edge_sampling
+# from best_params import best_params_dict
+# from heterophilic import get_fixed_splits
+# from utils import ROOT_DIR
+# from CGNN import CGNN, get_sym_adj
+# from CGNN import train as train_cgnn
 
 torch.manual_seed(3407)
 DATA_DIR = '/BAND/USERS/jiaqid/ADNI/data/'
@@ -31,7 +31,8 @@ class GraphPool(torch.nn.Module):
     self.node_num = node_num
 
   def forward(self, x):
-    return torch.nn.functional.avg_pool1d(x.T, self.node_num, self.node_num).T
+    # return torch.nn.functional.avg_pool1d(x.T, self.node_num, self.node_num).T
+    return torch.nn.functional.max_pool1d(x.T, self.node_num, self.node_num).T
 
 def get_optimizer(name, parameters, lr, weight_decay=0):
   if name == 'sgd':
@@ -246,12 +247,12 @@ def merge_cmd_args(cmd_opt, opt):
 
 
 def main(cmd_opt):
-  try:
-    best_opt = best_params_dict[cmd_opt['dataset']]
-    opt = {**cmd_opt, **best_opt}
-    merge_cmd_args(cmd_opt, opt)
-  except KeyError:
-    opt = cmd_opt
+  # try:
+  #   best_opt = best_params_dict[cmd_opt['dataset']]
+  #   opt = {**cmd_opt, **best_opt}
+  #   merge_cmd_args(cmd_opt, opt)
+  # except KeyError:
+  opt = cmd_opt
   opt['max_nfe'] = cmd_opt['max_nfe']
   opt['time'] = cmd_opt['time']
   dataset = get_dataset(opt, DATA_DIR, opt['not_lcc'])
@@ -315,8 +316,8 @@ def main(cmd_opt):
       #   train_acc = model.odeblock.test_integrator.solver.best_train
       #   best_time = model.odeblock.test_integrator.solver.best_time
 
-      # log = 'Epoch: {:03d}, Runtime {:03.2f}, Loss {:03.8f}, forward nfe {:d}, backward nfe {:d}, Train: {:.8f}, Val: {:.8f}, Test: {:.1f}, Best time: {:.0f}'
-      # print(log.format(epoch, time.time() - start_time, loss, model.fm.sum, model.bm.sum, train_acc, val_acc, test_acc, best_time))
+      log = 'Epoch: {:03d}, Runtime {:03.2f}, Loss {:03.8f}, forward nfe {:d}, backward nfe {:d}, Train: {:.8f}, Val: {:.8f}, Test: {:.1f}, Best time: {:.0f}'
+      print(log.format(epoch, time.time() - start_time, loss, model.fm.sum, model.bm.sum, train_acc, val_acc, test_acc, best_time))
     print('fold {:03d} best val accuracy {:03f} precision {:03f} f1 {:03f} at epoch {:d} and dataset {:s}'.format(
       foldi,val_acc,precision,F1score,best_epoch,opt['dataset']
     ))
@@ -357,7 +358,7 @@ if __name__ == '__main__':
   parser.add_argument('--optimizer', type=str, default='adam', help='One from sgd, rmsprop, adam, adagrad, adamax.')
   parser.add_argument('--lr', type=float, default=0.001, help='Learning rate.')
   parser.add_argument('--decay', type=float, default=5e-4, help='Weight decay for optimization')
-  parser.add_argument('--epoch', type=int, default=50, help='Number of training epochs per iteration.')
+  parser.add_argument('--epoch', type=int, default=100, help='Number of training epochs per iteration.')
   parser.add_argument('--alpha', type=float, default=1.0, help='Factor in front matrix A.')
   parser.add_argument('--alpha_dim', type=str, default='sc', help='choose either scalar (sc) or vector (vc) alpha')
   parser.add_argument('--no_alpha_sigmoid', dest='no_alpha_sigmoid', action='store_true',

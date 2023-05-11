@@ -112,6 +112,9 @@ class custom_Classification(InMemoryDataset):
         self.data.train_mask = train_mask
         self.data.val_mask = val_mask
         self.current_fold += 1
+        train_data = self.data.y[train_mask]
+        val_data = self.data.y[val_mask]
+        print(val_data.sum(), train_data.sum())
         
     def collate(self, x, y, edges):
         all_edge = edges[0][0]

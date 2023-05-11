@@ -9,3 +9,4 @@ models/
 *_out.txt
 src/*.sh
 src/*.out
+*_out*
