@@ -316,8 +316,8 @@ def main(cmd_opt):
       #   train_acc = model.odeblock.test_integrator.solver.best_train
       #   best_time = model.odeblock.test_integrator.solver.best_time
 
-      log = 'Epoch: {:03d}, Runtime {:03.2f}, Loss {:03.8f}, forward nfe {:d}, backward nfe {:d}, Train: {:.8f}, Val: {:.8f}, Test: {:.1f}, Best time: {:.0f}'
-      print(log.format(epoch, time.time() - start_time, loss, model.fm.sum, model.bm.sum, train_acc, val_acc, test_acc, best_time))
+      # log = 'Epoch: {:03d}, Runtime {:03.2f}, Loss {:03.8f}, forward nfe {:d}, backward nfe {:d}, Train: {:.8f}, Val: {:.8f}, Test: {:.1f}, Best time: {:.0f}'
+      # print(log.format(epoch, time.time() - start_time, loss, model.fm.sum, model.bm.sum, train_acc, val_acc, test_acc, best_time))
     print('fold {:03d} best val accuracy {:03f} precision {:03f} f1 {:03f} at epoch {:d} and dataset {:s}'.format(
       foldi,val_acc,precision,F1score,best_epoch,opt['dataset']
     ))
@@ -373,7 +373,7 @@ if __name__ == '__main__':
   parser.add_argument('--cgnn', dest='cgnn', action='store_true', help='Run the baseline CGNN model from ICML20')
 
   # ODE args
-  parser.add_argument('--time', type=float, default=64.0, help='End time of ODE integrator.')
+  parser.add_argument('--time', type=float, default=2.0, help='End time of ODE integrator.')
   parser.add_argument('--augment', action='store_true',
                       help='double the length of the feature vector by appending zeros to stabilist ODE learning')
   parser.add_argument('--method', type=str, default='dopri5', help="set the numerical solver: dopri5, euler, rk4, midpoint")
